@@ -87,9 +87,7 @@ def verify_draft_fidelity(draft: StructuredDraft, transcript: str) -> FidelityRe
             if not _UNIT_PATTERNS[measure.unit].search(evidence_text):
                 issues.append(FidelityIssue(code="measure_unit_not_grounded", path=path))
             if not _contains_quote(measure.original_expression, evidence_text):
-                issues.append(
-                    FidelityIssue(code="measure_expression_not_grounded", path=path)
-                )
+                issues.append(FidelityIssue(code="measure_expression_not_grounded", path=path))
 
     return FidelityReport(
         grounded=not issues,
@@ -225,6 +223,5 @@ def _iter_measures(
     content: SOAPContent | ABCContent | FreeContent,
 ) -> list[tuple[str, Measure]]:
     return [
-        (f"content.measures[{index}]", measure)
-        for index, measure in enumerate(content.measures)
+        (f"content.measures[{index}]", measure) for index, measure in enumerate(content.measures)
     ]

@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: carevoice
+      POSTGRES_USER: carevoice
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-carevoice-dev-change-me}
+    volumes:
+      - carevoice_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carevoice -d carevoice"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    env_file:
+      - .env
+    environment:
+      CAREVOICE_DATABASE_URL: postgresql+psycopg://carevoice:${POSTGRES_PASSWORD:-carevoice-dev-change-me}@postgres:5432/carevoice
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  worker:
+    build: .
+    command: ["carevoice-worker"]
+    env_file:
+      - .env
+    environment:
+      CAREVOICE_DATABASE_URL: postgresql+psycopg://carevoice:${POSTGRES_PASSWORD:-carevoice-dev-change-me}@postgres:5432/carevoice
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  bot:
+    build: .
+    command: ["carevoice-bot"]
+    env_file:
+      - .env
+    environment:
+      CAREVOICE_DATABASE_URL: postgresql+psycopg://carevoice:${POSTGRES_PASSWORD:-carevoice-dev-change-me}@postgres:5432/carevoice
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  carevoice_pgdata:

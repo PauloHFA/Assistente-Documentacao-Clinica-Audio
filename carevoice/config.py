@@ -21,6 +21,7 @@ class Settings(BaseSettings):
 
     environment: Literal["development", "test", "production"] = "development"
     transcriber: Literal["local", "cloud"] = "local"
+    llm_provider: Literal["ollama", "cloud"] = "ollama"
     cloud_processing_enabled: bool = False
     real_data_enabled: bool = False
     pseudonymize_before_llm: bool = True
@@ -29,6 +30,16 @@ class Settings(BaseSettings):
     max_audio_seconds: int = Field(default=300, gt=0)
     audio_retention_days: int = Field(default=0, ge=0, le=30)
     transcript_retention_days: int = Field(default=30, ge=0)
+    minimum_retention_days: int = Field(default=0, ge=0)
+    daily_jobs_limit: int = Field(default=100, gt=0)
+    ollama_base_url: str = "http://localhost:11434"
+    llm_model: str = "qwen2.5:7b-instruct"
+    llm_timeout_seconds: int = Field(default=60, gt=0)
+    cloud_llm_base_url: str = "https://api.openai.com/v1"
+    cloud_llm_api_key: SecretStr | None = None
+    cloud_transcriber_base_url: str = "https://api.openai.com/v1"
+    cloud_transcriber_model: str = "whisper-1"
+    cloud_transcriber_api_key: SecretStr | None = None
     field_encryption_key: SecretStr | None = None
     telegram_bot_token: SecretStr | None = None
     administrator_chat_id: SecretStr | None = None
@@ -58,6 +69,11 @@ class Settings(BaseSettings):
         if self.transcriber == "cloud" and not self.cloud_processing_enabled:
             raise ValueError(
                 "Cloud transcription is disabled; set CAREVOICE_CLOUD_PROCESSING_ENABLED=true "
+                "only after completing the required privacy and provider reviews."
+            )
+        if self.llm_provider == "cloud" and not self.cloud_processing_enabled:
+            raise ValueError(
+                "Cloud LLM structuring is disabled; set CAREVOICE_CLOUD_PROCESSING_ENABLED=true "
                 "only after completing the required privacy and provider reviews."
             )
         if self.environment == "production":

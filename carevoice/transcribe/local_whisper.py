@@ -122,7 +122,7 @@ def _load_model_factory() -> WhisperModelFactory:
         module = import_module("faster_whisper")
     except ModuleNotFoundError as exc:
         raise RuntimeError(
-            "Install the local transcription extra with `pip install -e \".[audio]\"`"
+            'Install the local transcription extra with `pip install -e ".[audio]"`'
         ) from exc
     return cast(WhisperModelFactory, module.WhisperModel)
 

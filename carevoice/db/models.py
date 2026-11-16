@@ -1,9 +1,20 @@
 """SQLAlchemy models for professional identity and patient administration."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -124,6 +135,7 @@ class ProcessingJob(Base):
         nullable=False,
     )
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    audio_format: Mapped[str | None] = mapped_column(String(8), nullable=True)
     payload_enc: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -132,6 +144,78 @@ class ProcessingJob(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class ClinicalSession(Base):
+    __tablename__ = "clinical_sessions"
+    __table_args__ = (
+        Index(
+            "ix_clinical_sessions_owner_patient_status",
+            "professional_id",
+            "patient_id",
+            "status",
+            "session_date",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("processing_jobs.id", ondelete="RESTRICT"),
+        unique=True,
+        nullable=False,
+    )
+    professional_id: Mapped[str] = mapped_column(
+        ForeignKey("professionals.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    patient_id: Mapped[str] = mapped_column(
+        ForeignKey("patients.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    session_date: Mapped[date] = mapped_column(Date, nullable=False)
+    template: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="TRANSCRIBED", nullable=False)
+    transcript_enc: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    transcript_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    current_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class SessionVersion(Base):
+    __tablename__ = "session_versions"
+    __table_args__ = (
+        UniqueConstraint("session_id", "version", name="uq_session_versions_number"),
+        Index("ix_session_versions_session_created", "session_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("clinical_sessions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_enc: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    fidelity_passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    fidelity_issues_enc: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    correction_reason_enc: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(36), nullable=False)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ClinicalDocument(Base):
+    __tablename__ = "clinical_documents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    session_version_id: Mapped[str] = mapped_column(
+        ForeignKey("session_versions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    document_type: Mapped[str] = mapped_column(String(16), nullable=False, default="evolution")
+    content_enc: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class AuditLog(Base):

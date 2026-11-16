@@ -25,6 +25,9 @@ def test_initial_migration_creates_domain_schema(tmp_path: Path) -> None:
             "consents",
             "goals",
             "processing_jobs",
+            "clinical_sessions",
+            "session_versions",
+            "clinical_documents",
             "audit_log",
             "alembic_version",
         } <= table_names

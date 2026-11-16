@@ -76,7 +76,7 @@ def test_abc_function_is_only_included_when_explicitly_present() -> None:
                         ),
                         "hypothesized_function": None,
                     }
-                ]
+                ],
             },
         }
     )
@@ -111,7 +111,7 @@ def test_evidence_quotes_may_be_separate_source_spans() -> None:
                             }
                         ],
                     }
-                ]
+                ],
             },
         }
     )
@@ -181,7 +181,7 @@ def test_measures_require_supported_value_unit_and_original_expression(
                         "original_expression": expression,
                         "evidence": [{"quote": "Tolerou a atividade por 15 minutos."}],
                     }
-                ]
+                ],
             },
         }
     )

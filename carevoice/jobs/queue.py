@@ -1,11 +1,11 @@
 """Encrypted persistent job queue with consent checks and bounded retries."""
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from carevoice.audio.limits import validate_audio_upload
@@ -40,12 +40,17 @@ class InvalidJobTransition(Exception):
     """Raised when a job cannot move from its current state to the requested state."""
 
 
+class DailyQuotaExceeded(Exception):
+    """Raised when a professional exceeds the daily job submission limit (RF29)."""
+
+
 @dataclass(frozen=True)
 class ClaimedJob:
     id: str
     professional_id: str
     patient_id: str
     kind: JobKind
+    audio_format: str | None
     payload: bytes
     attempts: int
 
@@ -63,6 +68,7 @@ class JobQueue:
         max_audio_seconds: int = 300,
         max_attempts: int = 3,
         base_retry_seconds: int = 2,
+        daily_limit: int = 100,
     ) -> None:
         if max_audio_mb <= 0 or max_audio_seconds <= 0:
             raise ValueError("Audio limits must be positive")
@@ -70,6 +76,8 @@ class JobQueue:
             raise ValueError("Retry limits must be positive")
         if base_retry_seconds > 300:
             raise ValueError("Base retry delay cannot exceed 300 seconds")
+        if daily_limit <= 0:
+            raise ValueError("Daily job limit must be positive")
         self._sessions = sessions
         self._identity = identity
         self._cipher = cipher
@@ -77,6 +85,7 @@ class JobQueue:
         self._max_audio_seconds = max_audio_seconds
         self._max_attempts = max_attempts
         self._base_retry_seconds = base_retry_seconds
+        self._daily_limit = daily_limit
 
     def enqueue_audio(
         self,
@@ -96,13 +105,25 @@ class JobQueue:
             max_duration_seconds=self._max_audio_seconds,
             content_type=content_type,
         )
-        return self._enqueue(chat_id, patient_id, "audio", audio.payload)
+        return self._enqueue(
+            chat_id,
+            patient_id,
+            "audio",
+            audio.payload,
+            audio_format=audio.format,
+        )
 
     def enqueue_text(self, chat_id: str, patient_id: str, text: str) -> str:
         normalized = text.strip()
         if len(normalized) <= 30:
             raise ValueError("Text input must contain more than 30 characters")
-        return self._enqueue(chat_id, patient_id, "text", normalized.encode("utf-8"))
+        return self._enqueue(
+            chat_id,
+            patient_id,
+            "text",
+            normalized.encode("utf-8"),
+            audio_format=None,
+        )
 
     def _enqueue(
         self,
@@ -110,6 +131,8 @@ class JobQueue:
         patient_id: str,
         kind: JobKind,
         payload: bytes,
+        *,
+        audio_format: str | None,
     ) -> str:
         professional_id = self._identity.require_processing_consent(chat_id, patient_id)
         job_id = str(uuid4())
@@ -142,12 +165,24 @@ class JobQueue:
                 raise ResourceNotFound("Patient not found")
             if consent is None:
                 raise ConsentRequired("Current consent is required before processing")
+            day_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+            jobs_today = session.scalar(
+                select(func.count(ProcessingJob.id)).where(
+                    ProcessingJob.professional_id == professional_id,
+                    ProcessingJob.created_at >= day_start,
+                )
+            )
+            if (jobs_today or 0) >= self._daily_limit:
+                raise DailyQuotaExceeded(
+                    f"Daily processing quota ({self._daily_limit} jobs) exceeded"
+                )
             session.add(
                 ProcessingJob(
                     id=job_id,
                     professional_id=professional_id,
                     patient_id=patient_id,
                     kind=kind,
+                    audio_format=audio_format,
                     payload_enc=self._cipher.encrypt_bytes(payload),
                     status="pending",
                     attempts=0,
@@ -185,6 +220,7 @@ class JobQueue:
                     job.status = "failed"
                     job.error_code = "consent_revoked"
                     job.completed_at = now
+                    job.payload_enc = b""
                     session.add(
                         AuditLog(
                             id=new_id(),
@@ -227,6 +263,7 @@ class JobQueue:
                     professional_id=job.professional_id,
                     patient_id=job.patient_id,
                     kind=_job_kind(job.kind),
+                    audio_format=job.audio_format,
                     payload=self._cipher.decrypt_bytes(job.payload_enc),
                     attempts=job.attempts,
                 )
@@ -241,6 +278,7 @@ class JobQueue:
                 job.status = "failed"
                 job.error_code = "consent_revoked"
                 job.completed_at = utc_now()
+                job.payload_enc = b""
                 session.add(
                     AuditLog(
                         id=new_id(),
@@ -255,19 +293,39 @@ class JobQueue:
             raise ConsentRequired("Current consent is required before processing")
 
     def complete(self, job_id: str) -> None:
+        consent_is_current = True
         with self._sessions.begin() as session:
             job = self._running_job(session, job_id)
-            job.status = "completed"
-            job.completed_at = utc_now()
-            session.add(
-                AuditLog(
-                    id=new_id(),
-                    actor_id=job.professional_id,
-                    action="job.completed",
-                    object_type="processing_job",
-                    object_id=job.id,
+            if not self._job_is_authorized(session, job):
+                job.status = "failed"
+                job.error_code = "consent_revoked"
+                job.completed_at = utc_now()
+                job.payload_enc = b""
+                session.add(
+                    AuditLog(
+                        id=new_id(),
+                        actor_id=job.professional_id,
+                        action="job.failed",
+                        object_type="processing_job",
+                        object_id=job.id,
+                    )
                 )
-            )
+                consent_is_current = False
+            else:
+                job.status = "completed"
+                job.completed_at = utc_now()
+                job.payload_enc = b""
+                session.add(
+                    AuditLog(
+                        id=new_id(),
+                        actor_id=job.professional_id,
+                        action="job.completed",
+                        object_type="processing_job",
+                        object_id=job.id,
+                    )
+                )
+        if not consent_is_current:
+            raise ConsentRequired("Current consent is required before completing processing")
 
     def fail(self, job_id: str, error_code: JobErrorCode) -> bool:
         if error_code not in {
@@ -282,11 +340,15 @@ class JobQueue:
             job = self._running_job(session, job_id)
             now = utc_now()
             job.error_code = error_code
-            can_retry = error_code in {
-                "provider_unavailable",
-                "transcription_failed",
-                "internal_error",
-            } and job.attempts < self._max_attempts
+            can_retry = (
+                error_code
+                in {
+                    "provider_unavailable",
+                    "transcription_failed",
+                    "internal_error",
+                }
+                and job.attempts < self._max_attempts
+            )
             if can_retry:
                 delay = min(
                     self._base_retry_seconds * 2 ** min(job.attempts - 1, 10),
@@ -298,6 +360,7 @@ class JobQueue:
             else:
                 job.status = "failed"
                 job.completed_at = now
+                job.payload_enc = b""
             session.add(
                 AuditLog(
                     id=new_id(),
