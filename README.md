@@ -1,35 +1,26 @@
-# CareVoice AI
+# Assistente-Documentacao-Clinica-Audio (`carevoice`)
 
-Base de implementação para uma ferramenta de apoio à documentação clínica. O sistema deverá
-organizar relatos de profissionais, exigir revisão e aprovação antes de registrar uma evolução
-como final e não deverá diagnosticar nem recomendar condutas.
+Base de implementação para assistência à documentação clínica por áudio e texto. O sistema organiza relatos de profissionais, preserva pseudonimização e verificação factual literal de evidências, exige revisão e aprovação humana antes de emitir evoluções finais em PDF e não diagnostica nem recomenda condutas.
+
+> **Identificadores internos preservados:** o pacote Python (`carevoice`), a distribuição (`carevoice-ai`), os entrypoints (`carevoice-worker`, `carevoice-bot`), o prefixo de ambiente (`CAREVOICE_*`) e as migrações Alembic permanecem inalterados para manter compatibilidade de imports e contratos.
 
 ## Estado atual
 
-O núcleo implementa configuração tipada, logging com redação de campos sensíveis, persistência
-SQLAlchemy, criptografia de campos pessoais, convites de uso único, revogação de profissionais,
-isolamento por profissional, cadastros de pacientes, consentimento e metas. A fila persistente
-armazena payloads criptografados, limita retries e verifica consentimento antes e durante o
-processamento. O worker local processa jobs de texto e áudio; o áudio usa o adaptador faster-whisper.
+O núcleo implementa configuração tipada, logging com redação de campos sensíveis, persistência SQLAlchemy/Alembic, criptografia de campos pessoais com digest HMAC, convites de uso único, revogação de profissionais, isolamento por profissional, cadastros de pacientes, consentimento e metas.
 
-O serviço de registros persiste transcrições criptografadas com prazo de retenção, cria versões
-imutáveis de rascunhos estruturados, verifica evidências, exige aprovação humana para emitir PDF e
-mantém histórico das versões aprovadas. A limpeza de transcrições vencidas é executada pelo worker.
-Os schemas disponíveis são SOAP, ABC e livre.
+- **Fila e Worker (`carevoice/jobs/`):** payloads criptografados na fila, `SKIP LOCKED`, cota diária por profissional (`daily_limit=100`), verificação de consentimento antes e durante o processamento, limpeza automática de transcrições vencidas, transcrição local (`faster-whisper`) ou nuvem opt-in (`CloudOpenAITranscriber`) e inspeção real de áudio (`inspect_audio_stream` via PyAV).
+- **Estruturação e Fidelidade (`carevoice/structure/`, `carevoice/fidelity/`):** cliente LLM assíncrono (`Ollama` local por padrão ou nuvem opt-in), pseudonimização reversível de nomes antes do LLM, filtro `#interno`, resolução determinística de datas em `pt-BR`, retry corretivo (até 2x) e verificação literal de citações/números/unidades para `SOAP`, `ABC` e `FREE`.
+- **Registros, PDFs e Bot Telegram (`carevoice/domain/records.py`, `carevoice/documents/pdf.py`, `carevoice/bot/`):** versões imutáveis com SHA-256, selo de retificação (`version > 1`), histórico, busca em sessões criptografadas, progresso de metas, relatório periódico em PDF, exportação `.zip`, auditoria e bot Telegram (`carevoice-bot`).
 
-**Limites importantes:** ainda não há bot, API ou interface de usuário para cadastrar/enfileirar
-casos, apresentar transcrições, editar rascunhos ou aprová-los. Essas operações existem como
-serviços internos e precisam ser integradas a uma interface. Não há integração com LLM nem geração
-automática de rascunhos. A verificação de fidelidade confirma correspondência textual e números,
-mas não prova equivalência semântica; a revisão profissional continua indispensável. O
-faster-whisper ainda não foi avaliado com um conjunto representativo de áudios. O projeto não está
-pronto para uso clínico e não deve receber dados reais de pacientes.
+**Limites importantes:** a verificação de fidelidade confirma correspondência textual e números, mas não prova equivalência semântica; a revisão profissional continua indispensável. `faster-whisper` e o pipeline LLM ainda precisam de avaliação empírica com conjunto representativo de áudios (`RNF02`/`RNF03`), e o modo de dados reais permanece desabilitado por padrão (`CAREVOICE_REAL_DATA_ENABLED=false`).
 
 ## Desenvolvimento local
 
 Requer Python 3.11 ou superior.
 
 ```powershell
+git clone https://github.com/PauloHFA/Assistente-Documentacao-Clinica-Audio.git
+cd Assistente-Documentacao-Clinica-Audio
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev,audio]"

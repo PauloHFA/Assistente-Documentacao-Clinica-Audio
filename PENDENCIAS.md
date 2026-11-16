@@ -1,4 +1,4 @@
-# Pendências e Próximos Passos — CareVoice AI (`carevoice-ai`)
+# Pendências e Próximos Passos — Assistente-Documentacao-Clinica-Audio (`carevoice-ai`)
 
 Documento técnico consolidando as implementações realizadas, o estado validado em testes/análise estática, as evoluções opcionais restantes e o que depende de credenciais, ambiente externo ou decisões jurídicas/clínicas fornecidas por você.
 
@@ -59,7 +59,7 @@ Documento técnico consolidando as implementações realizadas, o estado validad
 | **3. Banco PostgreSQL + Docker** | Subir Docker (`docker compose up -d --build`) ou fornecer `CAREVOICE_DATABASE_URL` PostgreSQL real para validar migrações `alembic upgrade head` fora do SQLite. | Obrigatório para `CAREVOICE_ENVIRONMENT=production`. |
 | **4. Corpus de 50 áudios clínicos (`RNF02`/`RNF03`)** | Executar avaliação empírica de WER (`<= 10%`), latência (`<= 30s`) e taxa de falsos positivos/omissões com `faster-whisper` (`medium` pt-BR) em hardware alvo. | Validação quantitativa antes de liberar piloto ampliado. |
 | **5. Governança LGPD / Jurídica (`RNF15`)** | Conduzir RIPD, modelagem de ameaças (STRIDE), contratos com operadores (se usar nuvem), validação com conselhos profissionais e decisão sobre manter `CAREVOICE_REAL_DATA_ENABLED=false` até conclusão. | Pré-requisito para sair do piloto com dados fictícios. |
-| **6. Sincronização Git (`ahead/behind`)** | Decidir se deseja consolidar os commits e arquivos novos na branch `main` e enviar (`push`) para `origin/main` (`https://github.com/PauloHFA/CareVoice.git`). | Mantém o repositório remoto atualizado com toda a implementação. |
+| **6. Sincronização Git** | Repositório remoto atualizado em `https://github.com/PauloHFA/Assistente-Documentacao-Clinica-Audio.git`. | Mantém histórico e documentação sincronizados. |
 
 ---
 
